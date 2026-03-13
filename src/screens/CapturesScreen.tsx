@@ -15,93 +15,95 @@ import {
 import AppHeaderMenu from "../components/AppHeaderMenu";
 import { supabase } from "../lib/supabase";
 
-type Project = {
-  id: string;
-  name: string;
-  description?: string | null;
-  created_at?: string;
-};
-
 type Props = {
+  route: any;
   navigation: any;
 };
 
-export default function ProjectsScreen({ navigation }: Props) {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [name, setName] = useState("");
+type Capture = {
+  id: string;
+  title: string;
+  created_at?: string;
+  project_id: string;
+};
+
+export default function CapturesScreen({ route, navigation }: Props) {
+  const { project } = route.params;
+  const [captures, setCaptures] = useState<Capture[]>([]);
+  const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadProjects = useCallback(async () => {
+  const loadCaptures = useCallback(async () => {
     setLoading(true);
 
     const { data, error } = await supabase
-      .from("projects")
+      .from("captures")
       .select("*")
+      .eq("project_id", project.id)
       .order("created_at", { ascending: false });
 
     if (error) {
       Alert.alert("Error", error.message);
     } else {
-      setProjects(data || []);
+      setCaptures(data || []);
     }
 
     setLoading(false);
-  }, []);
+  }, [project.id]);
 
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
+    loadCaptures();
+  }, [loadCaptures]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadProjects();
+    await loadCaptures();
     setRefreshing(false);
-  }, [loadProjects]);
+  }, [loadCaptures]);
 
-  const createProject = async () => {
-    if (!name.trim()) {
-      Alert.alert("Validation", "Project name is required.");
+  const addCapture = async () => {
+    if (!title.trim()) {
+      Alert.alert("Validation", "Capture title is required.");
       return;
     }
 
-    setCreating(true);
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    setAdding(true);
 
     const { data, error } = await supabase
-      .from("projects")
+      .from("captures")
       .insert([
         {
-          name: name.trim(),
-          user_id: user?.id,
+          title: title.trim(),
+          project_id: project.id,
         },
       ])
       .select()
       .single();
 
-    setCreating(false);
+    setAdding(false);
 
     if (error) {
       Alert.alert("Error", error.message);
       return;
     }
 
-    setName("");
-    await loadProjects();
+    setTitle("");
+    await loadCaptures();
 
     if (data?.id) {
-      navigation.navigate("Captures", { project: data });
+      navigation.navigate("CaptureWorkspace", {
+        project,
+        capture: data,
+      });
     }
   };
 
-  const deleteProject = async (project: Project) => {
+  const deleteCapture = async (capture: Capture) => {
     Alert.alert(
-      "Delete Project",
-      `Are you sure you want to delete "${project.name}"?`,
+      "Delete Capture",
+      `Are you sure you want to delete "${capture.title}"?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -109,17 +111,17 @@ export default function ProjectsScreen({ navigation }: Props) {
           style: "destructive",
           onPress: async () => {
             const { error } = await supabase
-              .from("projects")
+              .from("captures")
               .delete()
-              .eq("id", project.id);
+              .eq("id", capture.id);
 
             if (error) {
               Alert.alert("Error", error.message);
               return;
             }
 
-            setProjects((prev) =>
-              prev.filter((item) => item.id !== project.id),
+            setCaptures((prev) =>
+              prev.filter((item) => item.id !== capture.id),
             );
           },
         },
@@ -127,28 +129,28 @@ export default function ProjectsScreen({ navigation }: Props) {
     );
   };
 
-  const renderProject = ({ item }: { item: Project }) => {
+  const renderCapture = ({ item }: { item: Capture }) => {
     return (
       <TouchableOpacity
-        style={styles.projectCard}
+        style={styles.captureCard}
         activeOpacity={0.85}
-        onPress={() => navigation.navigate("Captures", { project: item })}
+        onPress={() =>
+          navigation.navigate("CaptureWorkspace", {
+            project,
+            capture: item,
+          })
+        }
       >
-        <View style={styles.projectLeftIcon}>
-          <Text style={styles.projectLeftIconText}>TM</Text>
-        </View>
-
-        <View style={styles.projectInfo}>
-          <Text style={styles.projectName}>{item.name}</Text>
-          <Text style={styles.projectMeta}>
-            Created{" "}
+        <View style={styles.captureInfo}>
+          <Text style={styles.captureTitle}>{item.title}</Text>
+          <Text style={styles.captureMeta}>
             {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
           </Text>
         </View>
 
         <TouchableOpacity
           style={styles.deleteButton}
-          onPress={() => deleteProject(item)}
+          onPress={() => deleteCapture(item)}
         >
           <Ionicons name="trash-outline" size={18} color="#dc2626" />
         </TouchableOpacity>
@@ -159,59 +161,55 @@ export default function ProjectsScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <AppHeaderMenu
-        title="TestMind AI"
+        title="Captures"
+        showBack
+        onBack={() => navigation.goBack()}
         onGoProjects={() => navigation.navigate("Projects")}
       />
 
       <FlatList
-        data={projects}
+        data={captures}
         keyExtractor={(item) => item.id}
-        renderItem={renderProject}
+        renderItem={renderCapture}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <>
-            <View style={styles.brandCard}>
+            <View style={styles.projectCard}>
               <View style={styles.logoCircle}>
                 <Text style={styles.logoText}>TM</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.brandTitle}>TestMind AI</Text>
-                <Text style={styles.brandSubtitle}>Visual QA Assistant</Text>
+                <Text style={styles.projectName}>{project.name}</Text>
+                <Text style={styles.projectSub}>
+                  Capture screens, requirements, and AI-generated outputs
+                </Text>
               </View>
             </View>
 
-            <View style={styles.welcomeCard}>
-              <Text style={styles.welcomeTitle}>Welcome to TestMind AI</Text>
-              <Text style={styles.welcomeText}>
-                Create projects, generate structured test cases, add edge cases,
-                and build AI-ready QA datasets.
-              </Text>
-            </View>
-
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Projects</Text>
+              <Text style={styles.sectionTitle}>Captures</Text>
               <Text style={styles.sectionSubtitle}>
-                Organize your product areas, requirements, screens, and
-                generated test assets.
+                Each capture can include a screenshot, requirement text,
+                testcase, and Playwright script.
               </Text>
 
               <View style={styles.inlineRow}>
                 <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Enter new project name"
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder="New capture title"
                   placeholderTextColor="#9ca3af"
                   style={styles.input}
                 />
                 <TouchableOpacity
                   style={styles.addBtn}
-                  onPress={createProject}
-                  disabled={creating}
+                  onPress={addCapture}
+                  disabled={adding}
                 >
-                  {creating ? (
+                  {adding ? (
                     <ActivityIndicator color="#2563eb" />
                   ) : (
                     <Text style={styles.addBtnText}>Add</Text>
@@ -225,11 +223,11 @@ export default function ProjectsScreen({ navigation }: Props) {
           loading ? (
             <View style={styles.emptyWrap}>
               <ActivityIndicator />
-              <Text style={styles.emptyText}>Loading projects...</Text>
+              <Text style={styles.emptyText}>Loading captures...</Text>
             </View>
           ) : (
             <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>No projects yet</Text>
+              <Text style={styles.emptyText}>No captures yet</Text>
             </View>
           )
         }
@@ -247,7 +245,7 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
-  brandCard: {
+  projectCard: {
     backgroundColor: "#ffffff",
     borderRadius: 22,
     padding: 20,
@@ -271,32 +269,16 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "700",
   },
-  brandTitle: {
-    fontSize: 20,
+  projectName: {
+    fontSize: 19,
     fontWeight: "800",
-    color: "#0f172a",
+    color: "#111827",
   },
-  brandSubtitle: {
-    fontSize: 14,
-    color: "#6b7280",
+  projectSub: {
     marginTop: 4,
-  },
-  welcomeCard: {
-    backgroundColor: "#1f86f2",
-    borderRadius: 24,
-    padding: 22,
-    marginBottom: 16,
-  },
-  welcomeTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#ffffff",
-    marginBottom: 10,
-  },
-  welcomeText: {
-    fontSize: 15,
-    lineHeight: 24,
-    color: "#eaf3ff",
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#6b7280",
   },
   sectionCard: {
     backgroundColor: "#ffffff",
@@ -345,7 +327,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "600",
   },
-  projectCard: {
+  captureCard: {
     backgroundColor: "#ffffff",
     borderRadius: 22,
     padding: 18,
@@ -355,30 +337,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e5e7eb",
   },
-  projectLeftIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#eaf1fb",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
-  },
-  projectLeftIconText: {
-    color: "#2196f3",
-    fontSize: 22,
-    fontWeight: "700",
-  },
-  projectInfo: {
+  captureInfo: {
     flex: 1,
   },
-  projectName: {
+  captureTitle: {
     fontSize: 17,
     fontWeight: "800",
     color: "#111827",
-    marginBottom: 4,
+    marginBottom: 6,
   },
-  projectMeta: {
+  captureMeta: {
     fontSize: 14,
     color: "#6b7280",
   },

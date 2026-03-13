@@ -1,5 +1,11 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
+.env
+qa-lab-backend/.env
+node_modules
+.expo
+dist
+
 # dependencies
 node_modules/
 

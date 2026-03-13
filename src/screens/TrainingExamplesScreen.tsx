@@ -3,13 +3,13 @@ import * as Sharing from "expo-sharing";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
-  Button,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import AppHeader from "../components/AppHeader";
 import { supabase } from "../lib/supabase";
 
 type TrainingExample = {
@@ -29,16 +29,7 @@ export default function TrainingExamplesScreen({
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const getUserId = async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error) return null;
-    return data?.user?.id ?? null;
-  };
-
   const load = async () => {
-    const userId = await getUserId();
-    if (!userId) return Alert.alert("Not signed in", "Please sign in again.");
-
     setLoading(true);
 
     const { data, error } = await supabase
@@ -57,15 +48,12 @@ export default function TrainingExamplesScreen({
   }, []);
 
   const remove = async (id: string) => {
-    const userId = await getUserId();
-    if (!userId) return Alert.alert("Not signed in", "Please sign in again.");
-
     const { error } = await supabase
       .from("training_examples")
       .delete()
       .eq("id", id);
-    if (error) return Alert.alert("Delete failed", error.message);
 
+    if (error) return Alert.alert("Delete failed", error.message);
     setItems((prev) => prev.filter((x) => x.id !== id));
   };
 
@@ -76,10 +64,11 @@ export default function TrainingExamplesScreen({
     ]);
   };
 
-  // --- CSV helpers ---
   const csvEscape = (value: unknown) => {
     const s = String(value ?? "");
-    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    if (/[",\n\r]/.test(s)) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
     return s;
   };
 
@@ -97,17 +86,14 @@ export default function TrainingExamplesScreen({
         ].join(","),
       );
     }
+
     return lines.join("\n");
   };
 
   const exportCsv = async () => {
     try {
-      const userId = await getUserId();
-      if (!userId) return Alert.alert("Not signed in", "Please sign in again.");
-
       setExporting(true);
 
-      // Pull fresh data
       const { data, error } = await supabase
         .from("training_examples")
         .select("id,input_text,output_text,approved_at,source")
@@ -126,16 +112,20 @@ export default function TrainingExamplesScreen({
 
       const csv = buildCsv(rows);
 
+      const baseDir =
+        (FileSystem as any).cacheDirectory ||
+        (FileSystem as any).documentDirectory;
+
+      if (!baseDir) {
+        setExporting(false);
+        return Alert.alert("Export failed", "No local directory available.");
+      }
+
       const fileName = `training_examples_${new Date()
         .toISOString()
         .replace(/[:.]/g, "-")}.csv`;
 
-      if (!(FileSystem as any).documentDirectory) {
-        setExporting(false);
-        return Alert.alert("Export failed", "No document directory available.");
-      }
-
-      const fileUri = (FileSystem as any).documentDirectory + fileName;
+      const fileUri = `${baseDir}${fileName}`;
 
       await (FileSystem as any).writeAsStringAsync(fileUri, csv, {
         encoding: (FileSystem as any).EncodingType.UTF8,
@@ -146,7 +136,7 @@ export default function TrainingExamplesScreen({
         setExporting(false);
         return Alert.alert(
           "Sharing not available",
-          "Your device cannot open a share sheet. The CSV is saved in the app document directory.",
+          `CSV saved at:\n${fileUri}`,
         );
       }
 
@@ -186,37 +176,29 @@ export default function TrainingExamplesScreen({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={onBack}>
-          <Text style={styles.back}>← Back</Text>
-        </Pressable>
+      <AppHeader
+        showBack
+        onBack={onBack}
+        title="Training Dataset"
+        subtitle="Approved examples used to train future AI outputs"
+        rightText={loading ? "Loading..." : "Refresh"}
+        onRightPress={load}
+      />
 
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <Button
-            title={exporting ? "Exporting..." : "Export CSV"}
-            onPress={exportCsv}
-            disabled={exporting}
-          />
-          <Button
-            title={loading ? "Refreshing..." : "Refresh"}
-            onPress={load}
-            disabled={loading}
-          />
-        </View>
-      </View>
-
-      <Text style={styles.title}>Training Dataset</Text>
-      <Text style={styles.sub}>
-        These are the examples saved when you press “Approve Training”.
-      </Text>
+      <Pressable style={styles.exportBtn} onPress={exportCsv}>
+        <Text style={styles.exportText}>
+          {exporting ? "Exporting CSV..." : "Export CSV"}
+        </Text>
+      </Pressable>
 
       <FlatList
+        style={{ marginTop: 14 }}
         data={items}
         keyExtractor={(x) => x.id}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         renderItem={renderItem}
         ListEmptyComponent={
-          <Text style={{ opacity: 0.7, marginTop: 12 }}>
+          <Text style={styles.emptyText}>
             No training examples yet. Approve a testcase first.
           </Text>
         }
@@ -227,20 +209,54 @@ export default function TrainingExamplesScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 60 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
+  container: {
+    flex: 1,
+    padding: 16,
+    paddingTop: 60,
+    backgroundColor: "#F8FAFC",
   },
-  back: { fontSize: 16 },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 6 },
-  sub: { opacity: 0.7, marginBottom: 12 },
-  card: { borderWidth: 1, borderRadius: 12, padding: 12 },
-  meta: { opacity: 0.7, marginBottom: 10 },
-  label: { fontWeight: "700", marginTop: 8, marginBottom: 4 },
-  text: { opacity: 0.9 },
-  actions: { marginTop: 10, flexDirection: "row", justifyContent: "flex-end" },
-  delete: { color: "red", fontWeight: "700" },
+  exportBtn: {
+    backgroundColor: "#0A84FF",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  exportText: {
+    color: "white",
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  card: {
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 14,
+    padding: 14,
+  },
+  meta: {
+    color: "#6B7280",
+    marginBottom: 10,
+  },
+  label: {
+    fontWeight: "800",
+    marginTop: 8,
+    marginBottom: 4,
+    color: "#111827",
+  },
+  text: {
+    color: "#374151",
+  },
+  actions: {
+    marginTop: 12,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  delete: {
+    color: "#DC2626",
+    fontWeight: "800",
+  },
+  emptyText: {
+    marginTop: 16,
+    color: "#6B7280",
+  },
 });

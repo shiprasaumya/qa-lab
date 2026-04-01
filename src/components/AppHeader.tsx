@@ -1,109 +1,120 @@
-import React from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import AppDrawerMenu from "./AppDrawerMenu";
 
-export default function AppHeader({
-  title = "TestMind AI",
-  subtitle = "Generate QA tests with AI",
-  showBack = false,
-  onBack,
-  rightText,
-  onRightPress,
-}: {
-  title?: string;
+type Props = {
+  title: string;
   subtitle?: string;
   showBack?: boolean;
-  onBack?: () => void;
-  rightText?: string;
-  onRightPress?: () => void;
-}) {
+  current?:
+    | "projects"
+    | "workspace"
+    | "generators"
+    | "exploratory"
+    | "analytics"
+    | "support";
+  fallbackRoute?: string;
+};
+
+export default function AppHeader({
+  title,
+  subtitle,
+  showBack = true,
+  current,
+  fallbackRoute = "/projects",
+}: Props) {
+  const router = useRouter();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const handleBack = () => {
+    router.replace(fallbackRoute as any);
+  };
+
   return (
-    <View style={styles.wrapper}>
-      <View style={styles.topRow}>
-        {showBack ? (
-          <Pressable onPress={onBack} style={styles.navBtn}>
-            <Text style={styles.link}>← Back</Text>
+    <>
+      <View style={styles.container}>
+        <View style={styles.left}>
+          <Pressable style={styles.iconBtn} onPress={() => setDrawerOpen(true)}>
+            <Ionicons name="menu-outline" size={24} color="#111827" />
           </Pressable>
-        ) : (
-          <View style={styles.navBtn} />
-        )}
-
-        {rightText ? (
-          <Pressable onPress={onRightPress} style={styles.navBtn}>
-            <Text style={styles.link}>{rightText}</Text>
-          </Pressable>
-        ) : (
-          <View style={styles.navBtn} />
-        )}
-      </View>
-
-      <View style={styles.brandCard}>
-        <View style={styles.logoCircle}>
-          <Text style={styles.logoText}>TM</Text>
         </View>
 
-        <View style={{ flex: 1 }}>
+        <View style={styles.center}>
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        </View>
+
+        <View style={styles.right}>
+          {showBack ? (
+            <Pressable style={styles.iconBtn} onPress={handleBack}>
+              <Ionicons name="arrow-back" size={22} color="#111827" />
+            </Pressable>
+          ) : (
+            <View style={styles.iconPlaceholder} />
+          )}
         </View>
       </View>
-    </View>
+
+      <AppDrawerMenu
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        current={current}
+      />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    marginBottom: 16,
-  },
-  topRow: {
+  container: {
+    height: 72,
+    paddingHorizontal: 16,
+    backgroundColor: "#f4f7fb",
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
+  },
+  left: {
+    width: 60,
+    alignItems: "flex-start",
+  },
+  right: {
+    width: 60,
+    alignItems: "flex-end",
+  },
+  center: {
+    flex: 1,
     alignItems: "center",
-    marginBottom: 12,
+    paddingHorizontal: 8,
   },
-  navBtn: {
-    minWidth: 64,
-  },
-  brandCard: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+  iconBtn: {
+    width: 54,
+    height: 54,
     borderRadius: 18,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  logoCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#2563EB",
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  logoText: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "800",
+  iconPlaceholder: {
+    width: 54,
+    height: 54,
   },
   title: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#111827",
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#0f172a",
+    textAlign: "center",
   },
   subtitle: {
-    fontSize: 13,
-    color: "#6B7280",
     marginTop: 2,
-  },
-  link: {
-    color: "#2563EB",
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 12,
+    color: "#64748b",
+    textAlign: "center",
   },
 });

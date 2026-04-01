@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,8 +12,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import AppHeaderMenu from "../components/AppHeaderMenu";
+import AppHeader from "../components/AppHeader";
 import { supabase } from "../lib/supabase";
+<AppHeader title="AI Test Creation" />;
 
 type Props = {
   route: any;
@@ -31,6 +32,7 @@ export default function CapturesScreen({ route, navigation }: Props) {
   const { project } = route.params;
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [title, setTitle] = useState("");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,6 +102,54 @@ export default function CapturesScreen({ route, navigation }: Props) {
     }
   };
 
+  const duplicateCapture = async (capture: Capture) => {
+    const { data, error } = await supabase
+      .from("captures")
+      .insert([
+        {
+          title: `${capture.title} Copy`,
+          project_id: capture.project_id,
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      Alert.alert("Error", error.message);
+      return;
+    }
+
+    await loadCaptures();
+
+    if (data?.id) {
+      Alert.alert("Success", "Capture duplicated successfully.");
+    }
+  };
+
+  const renameCapture = async (capture: Capture) => {
+    Alert.prompt?.(
+      "Edit Capture",
+      "Enter new capture title",
+      async (newTitle) => {
+        if (!newTitle?.trim()) return;
+
+        const { error } = await supabase
+          .from("captures")
+          .update({ title: newTitle.trim() })
+          .eq("id", capture.id);
+
+        if (error) {
+          Alert.alert("Error", error.message);
+          return;
+        }
+
+        await loadCaptures();
+      },
+      "plain-text",
+      capture.title,
+    );
+  };
+
   const deleteCapture = async (capture: Capture) => {
     Alert.alert(
       "Delete Capture",
@@ -129,11 +179,17 @@ export default function CapturesScreen({ route, navigation }: Props) {
     );
   };
 
+  const filteredCaptures = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return captures;
+    return captures.filter((item) => item.title?.toLowerCase().includes(q));
+  }, [captures, search]);
+
   const renderCapture = ({ item }: { item: Capture }) => {
     return (
       <TouchableOpacity
         style={styles.captureCard}
-        activeOpacity={0.85}
+        activeOpacity={0.9}
         onPress={() =>
           navigation.navigate("CaptureWorkspace", {
             project,
@@ -148,27 +204,43 @@ export default function CapturesScreen({ route, navigation }: Props) {
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => deleteCapture(item)}
-        >
-          <Ionicons name="trash-outline" size={18} color="#dc2626" />
-        </TouchableOpacity>
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => renameCapture(item)}
+          >
+            <Ionicons name="create-outline" size={18} color="#2563eb" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => duplicateCapture(item)}
+          >
+            <Ionicons name="copy-outline" size={18} color="#16a34a" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => deleteCapture(item)}
+          >
+            <Ionicons name="trash-outline" size={18} color="#dc2626" />
+          </TouchableOpacity>
+        </View>
       </TouchableOpacity>
     );
   };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppHeaderMenu
+      {/* <AppHeaderMenu
         title="Captures"
         showBack
         onBack={() => navigation.goBack()}
         onGoProjects={() => navigation.navigate("Projects")}
-      />
+      /> */}
 
       <FlatList
-        data={captures}
+        data={filteredCaptures}
         keyExtractor={(item) => item.id}
         renderItem={renderCapture}
         refreshControl={
@@ -195,6 +267,14 @@ export default function CapturesScreen({ route, navigation }: Props) {
                 Each capture can include a screenshot, requirement text,
                 testcase, and Playwright script.
               </Text>
+
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search captures"
+                placeholderTextColor="#9ca3af"
+                style={[styles.input, { marginBottom: 12 }]}
+              />
 
               <View style={styles.inlineRow}>
                 <TextInput
@@ -237,14 +317,8 @@ export default function CapturesScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "#eef2f5",
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-  },
+  safe: { flex: 1, backgroundColor: "#eef2f5" },
+  content: { padding: 16, paddingBottom: 40 },
   projectCard: {
     backgroundColor: "#ffffff",
     borderRadius: 22,
@@ -264,16 +338,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 14,
   },
-  logoText: {
-    color: "#ffffff",
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  projectName: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#111827",
-  },
+  logoText: { color: "#ffffff", fontSize: 24, fontWeight: "700" },
+  projectName: { fontSize: 19, fontWeight: "800", color: "#111827" },
   projectSub: {
     marginTop: 4,
     fontSize: 14,
@@ -337,9 +403,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e5e7eb",
   },
-  captureInfo: {
-    flex: 1,
-  },
+  captureInfo: { flex: 1 },
   captureTitle: {
     fontSize: 17,
     fontWeight: "800",
@@ -350,11 +414,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6b7280",
   },
-  deleteButton: {
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  iconBtn: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: "#fef2f2",
+    backgroundColor: "#eff6ff",
     alignItems: "center",
     justifyContent: "center",
   },

@@ -12,8 +12,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import AppHeaderMenu from "../components/AppHeaderMenu";
+import AppHeader from "../components/AppHeader";
 import { supabase } from "../lib/supabase";
+
+<AppHeader title="Projects" showBack={false} current="projects" />;
 
 type Project = {
   id: string;
@@ -158,10 +160,7 @@ export default function ProjectsScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppHeaderMenu
-        title="TestMind AI"
-        onGoProjects={() => navigation.navigate("Projects")}
-      />
+      <AppHeader title="Projects" showBack={false} current="projects" />
 
       <FlatList
         data={projects}
@@ -247,6 +246,7 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
+
   brandCard: {
     backgroundColor: "#ffffff",
     borderRadius: 22,

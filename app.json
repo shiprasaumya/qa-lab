@@ -4,26 +4,21 @@
     "slug": "testmind-ai",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/testmind-icon.png",
+    "icon": "./assets/images/icon.png",
     "scheme": "testmindai",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/testmind-splash.png",
+      "image": "./assets/images/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#F8FAFC"
+      "backgroundColor": "#ffffff"
     },
     "ios": {
+      "bundleIdentifier": "com.testmind.ai",
+      "buildNumber": "1.0.0",
       "supportsTablet": true
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/testmind-icon.png",
-        "backgroundColor": "#F8FAFC"
-      }
-    },
-    "web": {
-      "favicon": "./assets/testmind-icon.png"
-    },
-    "plugins": ["expo-image-picker"]
+      "package": "com.testmind.ai"
+    }
   }
 }

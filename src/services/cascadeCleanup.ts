@@ -1,122 +1,101 @@
 import { supabase } from "../lib/supabase";
 
-type AttachmentRow = {
-  id: string;
-  file_path: string;
-};
-
-async function removeStorageFiles(filePaths: string[]) {
-  if (!filePaths.length) return;
-
-  const chunkSize = 100;
-
-  for (let i = 0; i < filePaths.length; i += chunkSize) {
-    const chunk = filePaths.slice(i, i + chunkSize);
-    const { error } = await supabase.storage.from("attachments").remove(chunk);
-
-    if (error) {
-      throw error;
-    }
-  }
-}
-
 export async function deleteCaptureCascade(captureId: string) {
-  const { data: attachments, error: attachmentsError } = await supabase
+  const { data: captureRow, error: captureError } = await supabase
+    .from("captures")
+    .select("id, project_id")
+    .eq("id", captureId)
+    .single();
+
+  if (captureError) {
+    throw captureError;
+  }
+
+  const projectId = captureRow.project_id as string;
+
+  const { error: attachmentsError } = await supabase
     .from("attachments")
-    .select("id, file_path")
+    .delete()
+    .eq("project_id", projectId)
     .eq("capture_id", captureId);
 
   if (attachmentsError) {
     throw attachmentsError;
   }
 
-  const filePaths = ((attachments || []) as AttachmentRow[])
-    .map((item) => item.file_path)
-    .filter(Boolean);
-
-  if (filePaths.length) {
-    await removeStorageFiles(filePaths);
-  }
-
-  const { error: deleteAttachmentsError } = await supabase
-    .from("attachments")
-    .delete()
-    .eq("capture_id", captureId);
-
-  if (deleteAttachmentsError) {
-    throw deleteAttachmentsError;
-  }
-
-  const { error: deleteOutputsError } = await supabase
+  const { error: outputsError } = await supabase
     .from("generated_outputs")
     .delete()
+    .eq("project_id", projectId)
     .eq("capture_id", captureId);
 
-  if (deleteOutputsError) {
-    throw deleteOutputsError;
+  if (outputsError) {
+    throw outputsError;
   }
 
-  const { error: deleteCaptureError } = await supabase
+  const { error: draftsError } = await supabase
+    .from("requirement_drafts")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("capture_id", captureId);
+
+  if (draftsError) {
+    throw draftsError;
+  }
+
+  const { error: captureDeleteError } = await supabase
     .from("captures")
     .delete()
     .eq("id", captureId);
 
-  if (deleteCaptureError) {
-    throw deleteCaptureError;
+  if (captureDeleteError) {
+    throw captureDeleteError;
   }
 }
 
 export async function deleteProjectCascade(projectId: string) {
-  const { data: projectAttachments, error: attachmentsError } = await supabase
+  const { error: attachmentsError } = await supabase
     .from("attachments")
-    .select("id, file_path")
+    .delete()
     .eq("project_id", projectId);
 
   if (attachmentsError) {
     throw attachmentsError;
   }
 
-  const filePaths = ((projectAttachments || []) as AttachmentRow[])
-    .map((item) => item.file_path)
-    .filter(Boolean);
-
-  if (filePaths.length) {
-    await removeStorageFiles(filePaths);
-  }
-
-  const { error: deleteAttachmentsError } = await supabase
-    .from("attachments")
-    .delete()
-    .eq("project_id", projectId);
-
-  if (deleteAttachmentsError) {
-    throw deleteAttachmentsError;
-  }
-
-  const { error: deleteOutputsError } = await supabase
+  const { error: outputsError } = await supabase
     .from("generated_outputs")
     .delete()
     .eq("project_id", projectId);
 
-  if (deleteOutputsError) {
-    throw deleteOutputsError;
+  if (outputsError) {
+    throw outputsError;
   }
 
-  const { error: deleteCapturesError } = await supabase
+  const { error: draftsError } = await supabase
+    .from("requirement_drafts")
+    .delete()
+    .eq("project_id", projectId);
+
+  if (draftsError) {
+    throw draftsError;
+  }
+
+  const { error: capturesError } = await supabase
     .from("captures")
     .delete()
     .eq("project_id", projectId);
 
-  if (deleteCapturesError) {
-    throw deleteCapturesError;
+  if (capturesError) {
+    throw capturesError;
   }
 
-  const { error: deleteProjectError } = await supabase
+  const { error: projectDeleteError } = await supabase
     .from("projects")
     .delete()
     .eq("id", projectId);
 
-  if (deleteProjectError) {
-    throw deleteProjectError;
+  if (projectDeleteError) {
+    throw projectDeleteError;
   }
 }

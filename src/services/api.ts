@@ -1,150 +1,183 @@
-import { Alert, Platform } from "react-native";
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || "").replace(
+  /\/$/,
+  "",
+);
 
-const getBaseUrl = () => {
-  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-
-  if (envUrl) {
-    return envUrl.replace(/\/$/, "");
-  }
-
-  if (__DEV__) {
-    if (Platform.OS === "android") {
-      return "http://10.0.2.2:8000";
-    }
-
-    return "http://YOUR_LAPTOP_IP:8000";
-  }
-
-  return "http://YOUR_LAPTOP_IP:8000";
+type GeneratePayload = {
+  projectId: string;
+  requirement: string;
 };
 
-export const API_BASE_URL = getBaseUrl();
-
-type RequestOptions = RequestInit & {
-  timeoutMs?: number;
+type ScreenshotGeneratePayload = {
+  projectId: string;
+  requirement: string;
+  screenshotBase64: string;
+  screenshotMimeType?: string;
 };
 
-async function parseResponse(response: Response) {
-  const text = await response.text();
+type RefinePayload = {
+  projectId: string;
+  requirement: string;
+  currentOutput: string;
+  mode: "improve" | "negative" | "automation";
+  outputType?: string;
+};
 
-  if (!text) return null;
+type GenerateResponse = {
+  result: string;
+};
 
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
+type GenerateAllResponse = {
+  testCases: string;
+  edgeCases: string;
+  apiTests: string;
+  playwright: string;
+};
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function apiRequest<T>(
+async function apiRequest<T>(
   path: string,
-  options: RequestOptions = {},
+  options: RequestInit = {},
+  retries = 2,
 ): Promise<T> {
-  const { timeoutMs = 90000, headers, ...rest } = options;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
-      ...rest,
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(headers || {}),
-      },
-    });
-
-    const data = await parseResponse(response);
-
-    if (!response.ok) {
-      const message =
-        typeof data === "object" && data && "detail" in data
-          ? String((data as any).detail)
-          : typeof data === "string"
-            ? data
-            : `Request failed with status ${response.status}`;
-
-      throw new Error(message);
-    }
-
-    return data as T;
-  } catch (error: any) {
-    if (error?.name === "AbortError") {
-      throw new Error("Request timed out. Please try again.");
-    }
-
-    if (
-      String(error?.message || "").includes("Network request failed") ||
-      String(error?.message || "").includes("fetch")
-    ) {
-      throw new Error(
-        `Cannot reach backend at ${API_BASE_URL}. Make sure FastAPI is running and your phone and laptop are on the same Wi-Fi.`,
-      );
-    }
-
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+  if (!API_BASE_URL) {
+    throw new Error("EXPO_PUBLIC_API_BASE_URL is missing.");
   }
+
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+        signal: controller.signal,
+      });
+
+      const raw = await response.text();
+      let parsed: any = null;
+
+      try {
+        parsed = raw ? JSON.parse(raw) : null;
+      } catch {
+        parsed = raw;
+      }
+
+      if (!response.ok) {
+        const message =
+          parsed?.detail ||
+          parsed?.message ||
+          (typeof parsed === "string" ? parsed : null) ||
+          `Request failed with status ${response.status}`;
+        throw new Error(message);
+      }
+
+      return parsed as T;
+    } catch (error: any) {
+      lastError = error;
+
+      const isRetryable =
+        error?.name === "AbortError" ||
+        String(error?.message || "")
+          .toLowerCase()
+          .includes("network request failed") ||
+        String(error?.message || "")
+          .toLowerCase()
+          .includes("fetch");
+
+      if (!isRetryable || attempt === retries) {
+        if (isRetryable) {
+          throw new Error(
+            `Cannot reach backend at ${API_BASE_URL}. Check backend, Wi-Fi, and firewall.`,
+          );
+        }
+        throw error;
+      }
+
+      await sleep(800 * (attempt + 1));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw lastError as Error;
 }
 
-export async function healthCheck() {
-  return apiRequest<{ status: string }>("/health", {
-    method: "GET",
-    timeoutMs: 10000,
-  });
-}
-
-export async function generateTestCases(payload: {
-  projectId: string;
-  requirement: string;
-}) {
-  return apiRequest<{ result: string }>("/generate/test-cases", {
+export const generateTestCases = async (requirement: string) => {
+  const res = await fetch(`${API_BASE_URL}/generate-test-cases`, {
     method: "POST",
-    body: JSON.stringify(payload),
-    timeoutMs: 90000,
+    headers: { "Const-Type": "application/json" },
+    body: JSON.stringify({ requirement }),
   });
-}
 
-export async function generateEdgeCases(payload: {
-  projectId: string;
-  requirement: string;
-}) {
-  return apiRequest<{ result: string }>("/generate/edge-cases", {
+  return res.json();
+};
+
+export const generateEdgeCases = async (requirement: string) => {
+  const res = await fetch(`${API_BASE_URL}/generate-edge-cases`, {
     method: "POST",
-    body: JSON.stringify(payload),
-    timeoutMs: 90000,
+    headers: { "Const-Type": "application/json" },
+    body: JSON.stringify({ requirement }),
   });
-}
 
-export async function generateScreenshotSteps(payload: {
-  projectId: string;
-  requirement: string;
-}) {
-  return apiRequest<{ result: string }>("/generate/screenshot", {
+  return res.json();
+};
+export const generateApiTests = async (requirement: string) => {
+  const res = await fetch(`${API_BASE_URL}/generate/api-tests`, {
     method: "POST",
-    body: JSON.stringify(payload),
-    timeoutMs: 120000,
+    headers: { "Const-Type": "application/json" },
+    body: JSON.stringify({ requirement }),
   });
-}
 
-export async function generatePlaywrightScript(payload: {
-  projectId: string;
-  requirement: string;
-}) {
-  return apiRequest<{ result: string; fileName?: string }>(
-    "/generate/playwright",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-      timeoutMs: 90000,
-    },
-  );
-}
+  return res.json();
+};
 
-export function showApiError(error: unknown) {
-  const message =
-    error instanceof Error ? error.message : "Something went wrong.";
-  Alert.alert("Error", message);
-}
+export const generatePlaywrightScript = async (requirement: string) => {
+  const res = await fetch(`${API_BASE_URL}/generate/playwright`, {
+    method: "POST",
+    headers: { "Const-Type": "application/json" },
+    body: JSON.stringify({ requirement }),
+  });
+
+  return res.json();
+};
+
+export const generateScreenshotSteps = async (
+  requirement: string,
+  imageUri: string,
+) => {
+  const res = await fetch(`${API_BASE_URL}/generate/screenshot`, {
+    method: "POST",
+    headers: { "Const-Type": "application/json" },
+    body: JSON.stringify({ requirement }),
+  });
+
+  return res.json();
+};
+export const generateAll = async (requirement: string) => {
+  const res = await fetch(`${API_BASE_URL}/generate/all`, {
+    method: "POST",
+    headers: { "Const-Type": "application/json" },
+    body: JSON.stringify({ requirement }),
+  });
+
+  return res.json();
+};
+export const refineOutput = async (requirement: string) => {
+  const res = await fetch(`${API_BASE_URL}/generate/refine`, {
+    method: "POST",
+    headers: { "Const-Type": "application/json" },
+    body: JSON.stringify({ requirement }),
+  });
+
+  return res.json();
+};

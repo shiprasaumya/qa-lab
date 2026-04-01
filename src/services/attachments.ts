@@ -1,11 +1,13 @@
 import { decode } from "base64-arraybuffer";
-import * as FileSystem from "expo-file-system";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "../lib/supabase";
 
 export type AttachmentRecord = {
   id: string;
   project_id: string;
-  capture_id?: string | null;
+  capture_id: string | null;
+  requirement_run_id?: string | null;
   file_name: string;
   file_type?: string | null;
   file_path: string;
@@ -15,7 +17,8 @@ export type AttachmentRecord = {
 
 type UploadAttachmentParams = {
   projectId: string;
-  captureId?: string | null;
+  captureId: string | null;
+  requirementRunId?: string | null;
   file: {
     name: string;
     uri: string;
@@ -31,136 +34,155 @@ function sanitizeFileName(name: string) {
   return name.replace(/[^\w.\-]/g, "_");
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function buildStoragePath(
+  projectId: string,
+  captureId: string | null,
+  fileName: string,
+) {
+  const safeName = sanitizeFileName(fileName);
+  const capturePart = captureId || "no_capture";
+  return `${projectId}/${capturePart}/${Date.now()}_${safeName}`;
 }
 
-async function uploadWithRetry(
-  filePath: string,
-  base64: string,
-  mimeType: string | null | undefined,
-) {
-  let lastError: any = null;
+export async function pickUniversalFiles() {
+  const result = await DocumentPicker.getDocumentAsync({
+    multiple: true,
+    copyToCacheDirectory: true,
+    type: [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "text/plain",
+      "application/json",
+      "text/csv",
+      "application/xml",
+      "text/xml",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "image/*",
+      "*/*",
+    ],
+  });
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const { error } = await supabase.storage
-      .from("attachments")
-      .upload(filePath, decode(base64), {
-        contentType: mimeType || "application/octet-stream",
-        upsert: false,
-      });
+  if (result.canceled) return [];
 
-    if (!error) {
-      return;
-    }
-
-    lastError = error;
-    if (attempt < 2) {
-      await sleep(700 * (attempt + 1));
-    }
-  }
-
-  throw lastError;
+  return result.assets.map((asset) => ({
+    name: asset.name,
+    uri: asset.uri,
+    mimeType: asset.mimeType ?? null,
+    size: asset.size ?? null,
+  }));
 }
 
 export async function uploadAttachment({
   projectId,
   captureId,
+  requirementRunId,
   file,
-}: UploadAttachmentParams) {
-  const safeName = sanitizeFileName(file.name || `file_${Date.now()}`);
-
-  if (typeof file.size === "number" && file.size > MAX_FILE_SIZE_BYTES) {
-    throw new Error(
-      `File is too large. Max supported size is ${MAX_FILE_SIZE_MB} MB.`,
-    );
+}: UploadAttachmentParams): Promise<AttachmentRecord> {
+  if (!file.uri) {
+    throw new Error("Selected file has no URI.");
   }
 
-  const fileInfo = await FileSystem.getInfoAsync(file.uri);
-  const fileSize =
-    fileInfo.exists && "size" in fileInfo ? Number(fileInfo.size || 0) : 0;
-
-  if (fileSize > MAX_FILE_SIZE_BYTES) {
+  if (file.size && file.size > MAX_FILE_SIZE_BYTES) {
     throw new Error(
-      `File is too large. Max supported size is ${MAX_FILE_SIZE_MB} MB.`,
+      `File too large. Max allowed size is ${MAX_FILE_SIZE_MB} MB.`,
     );
   }
-
-  const filePath = `${projectId}/${captureId || "no-capture"}/${Date.now()}_${safeName}`;
 
   const base64 = await FileSystem.readAsStringAsync(file.uri, {
-    //encoding: FileSystem.EncodingType.Base64,
+    encoding: FileSystem.EncodingType.Base64,
   });
 
-  await uploadWithRetry(filePath, base64, file.mimeType);
+  const arrayBuffer = decode(base64);
+  const filePath = buildStoragePath(projectId, captureId, file.name);
 
-  const { data: publicUrlData } = supabase.storage
+  const storage = await supabase.storage
+    .from("attachments")
+    .upload(filePath, arrayBuffer, {
+      contentType: file.mimeType || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (storage.error) {
+    throw new Error(storage.error.message || "Unable to upload attachment.");
+  }
+
+  const publicUrlResult = supabase.storage
     .from("attachments")
     .getPublicUrl(filePath);
+  const fileUrl = publicUrlResult.data?.publicUrl || null;
 
-  const { data, error: dbError } = await supabase
+  const insert = await supabase
     .from("attachments")
-    .insert([
-      {
-        project_id: projectId,
-        capture_id: captureId || null,
-        file_name: safeName,
-        file_type: file.mimeType || null,
-        file_path: filePath,
-        file_url: publicUrlData.publicUrl,
-      },
-    ])
-    .select()
+    .insert({
+      project_id: projectId,
+      capture_id: captureId,
+      requirement_run_id: requirementRunId || null,
+      file_name: file.name,
+      file_type: file.mimeType || "application/octet-stream",
+      file_path: filePath,
+      file_url: fileUrl,
+    })
+    .select(
+      "id, project_id, capture_id, requirement_run_id, file_name, file_type, file_path, file_url, created_at",
+    )
     .single();
 
-  if (dbError) {
-    try {
-      await supabase.storage.from("attachments").remove([filePath]);
-    } catch {}
-    throw dbError;
+  if (insert.error) {
+    throw new Error(
+      insert.error.message || "Unable to save attachment metadata.",
+    );
   }
 
-  return data as AttachmentRecord;
+  return insert.data as AttachmentRecord;
 }
 
-export async function getAttachments(params: {
-  projectId: string;
-  captureId?: string | null;
-}) {
-  let query = supabase
+export async function listAttachmentsForCapture(
+  projectId: string,
+  captureId: string,
+): Promise<AttachmentRecord[]> {
+  const res = await supabase
     .from("attachments")
-    .select("*")
-    .eq("project_id", params.projectId)
+    .select(
+      "id, project_id, capture_id, requirement_run_id, file_name, file_type, file_path, file_url, created_at",
+    )
+    .eq("project_id", projectId)
+    .eq("capture_id", captureId)
     .order("created_at", { ascending: false });
 
-  if (params.captureId) {
-    query = query.eq("capture_id", params.captureId);
+  if (res.error) {
+    throw new Error(res.error.message || "Unable to load attachments.");
   }
 
-  const { data, error } = await query;
-
-  if (error) {
-    throw error;
-  }
-
-  return (data || []) as AttachmentRecord[];
+  return (res.data || []) as AttachmentRecord[];
 }
 
-export async function deleteAttachment(attachment: AttachmentRecord) {
-  const { error: storageError } = await supabase.storage
+export async function linkAttachmentsToRequirementRun(
+  projectId: string,
+  captureId: string,
+  requirementRunId: string,
+) {
+  const res = await supabase
     .from("attachments")
-    .remove([attachment.file_path]);
+    .update({ requirement_run_id: requirementRunId })
+    .eq("project_id", projectId)
+    .eq("capture_id", captureId)
+    .is("requirement_run_id", null);
 
-  if (storageError) {
-    throw storageError;
+  if (res.error) {
+    throw new Error(
+      res.error.message || "Unable to link attachments to requirement run.",
+    );
+  }
+}
+
+export async function deleteAttachment(id: string, filePath?: string | null) {
+  if (filePath) {
+    await supabase.storage.from("attachments").remove([filePath]);
   }
 
-  const { error: dbError } = await supabase
-    .from("attachments")
-    .delete()
-    .eq("id", attachment.id);
+  const res = await supabase.from("attachments").delete().eq("id", id);
 
-  if (dbError) {
-    throw dbError;
+  if (res.error) {
+    throw new Error(res.error.message || "Unable to delete attachment.");
   }
 }
